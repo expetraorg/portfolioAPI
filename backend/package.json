@@ -10,7 +10,6 @@
   "author": "Maga",
   "license": "ISC",
   "dependencies": {
-    
     "alchemy-sdk": "^2.8.2",
     "axios": "^1.4.0",
     "cors": "^2.8.5",
