@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const axios = require("axios");
+const {axios, AxiosRequestConfig, AxiosPromise, AxiosResponse } = require("axios");
 const { Network, Alchemy, Utils } = require("alchemy-sdk");
 require("dotenv").config();
 
