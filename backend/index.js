@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const {axios, AxiosRequestConfig, AxiosPromise, AxiosResponse } = require("axios");
+const axios = require("axios");
 const { Network, Alchemy, Utils } = require("alchemy-sdk");
 require("dotenv").config();
 
@@ -63,6 +63,7 @@ app.get("/nativeBalanceAlchemy", async (req, res) => {
 
     //console.log(`Balance of ${address}: ${balance} ETH`);
   } catch (e) {
+    console.error(e);
     res.send(e);
   }
 });
