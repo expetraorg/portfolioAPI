@@ -1,12 +1,15 @@
-const Moralis = require("moralis").default;
 const express = require("express");
 const cors = require("cors");
+const axios = require("axios");
+const { Network, Alchemy, Utils } = require("alchemy-sdk");
 require("dotenv").config();
 
-MORALIS_API_KEY = "UeFCjVE90DnXtW7SXTbfo58o6BG2LwmK2h0xtAhAhVZTOLLC5HNMbKpy9uwWrDJD";
+//Alchemy API keys
+const apiKey = "s7rg0ydiXztVJObN2ODEvpmU-VxhHY3p";
+const apiKeyMatic = "krNk1IldZnJSlp77BIfm6sbfjHasjh5p";
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3006;
 
 app.use(cors());
 
@@ -14,142 +17,244 @@ app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
 
-//GET AMOUNT AND VALUE OF NATIVE TOKENS
-
-app.get("/nativeBalance", async (req, res) => {
-  await Moralis.start({ apiKey: MORALIS_API_KEY });
-
+app.get("/nativeBalanceAlchemy", async (req, res) => {
   try {
     const { address, chain } = req.query;
+    const config = {
+      apiKey: apiKey,
+    };
 
-    const response = await Moralis.EvmApi.balance.getNativeBalance({
-      address: address,
-      chain: chain,
-    });
+    const configMatic = {
+      apiKey: apiKeyMatic,
+      network: Network.MATIC_MAINNET, // Replace with your network.
+    };
+    let alchemy = new Alchemy(config);
+    let requestPrice =
+      "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd";
 
-    const nativeBalance = response.data;
-
-    let nativeCurrency;
     if (chain === "0x1") {
-      nativeCurrency = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+      requestPrice =
+        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd";
+
+      alchemy = new Alchemy(config);
     } else if (chain === "0x89") {
-      nativeCurrency = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
+      alchemy = new Alchemy(configMatic);
+      requestPrice =
+        "https://api.coingecko.com/api/v3/simple/price?ids=wmatic&vs_currencies=usd";
     }
 
-    const nativePrice = await Moralis.EvmApi.token.getTokenPrice({
-      address: nativeCurrency, //WETH Contract
-      chain: chain,
-    });
+    // Get balance and format in terms of ETH
+    let balance = await alchemy.core.getBalance(address, "latest");
+    balance = Utils.formatEther(balance);
 
-    nativeBalance.usd = nativePrice.data.usdPrice;
+    const response = await axios.get(requestPrice);
+    if (chain === "0x1") {
+      response.data.ethereum.usd = response.data.ethereum.usd;
+      response.data.ethereum.balance = balance;
+      response.data.ethereum.balanceInUSD =
+        balance * response.data.ethereum.usd;
+      res.send(response.data.ethereum);
+    } else if (chain === "0x89") {
+      response.data.wmatic.usd = response.data.wmatic.usd;
+      response.data.wmatic.balance = balance;
+      response.data.wmatic.balanceInUSD = balance * response.data.wmatic.usd;
+      res.send(response.data.wmatic);
+    }
 
-    res.send(nativeBalance);
+    //console.log(`Balance of ${address}: ${balance} ETH`);
   } catch (e) {
     res.send(e);
   }
 });
 
-//GET AMOUNT AND VALUE OF ERC20 TOKENS
+//Alchemy part:
+app.get("/nftBalanceAlchemy", async (req, res) => {
+  const { address, chain } = req.query;
+  //https://eth-mainnet.g.alchemy.com/nft/v3/${apiKey}/getContractMetadata
 
-app.get("/tokenBalances", async (req, res) => {
-  await Moralis.start({ apiKey: MORALIS_API_KEY});//process.env.MORALIS_API_KEY });
+  let baseURL = `https://eth-mainnet.g.alchemy.com/nft/v3/${apiKey}/getNFTsForOwner`;
+  if (chain === "0x1") {
+    baseURL = `https://eth-mainnet.g.alchemy.com/nft/v3/${apiKey}/getNFTsForOwner`;
+  } else if (chain === "0x89") {
+    baseURL = `https://polygon-mainnet.g.alchemy.com/nft/v3/${apiKeyMatic}/getNFTsForOwner`;
+  }
 
+  var config = {
+    method: "get",
+    url: `${baseURL}?owner=${address}`,
+  };
+  try {
+    const response = await axios(config)
+      .then((response) => {
+        //console.log(JSON.stringify(response.data, null, 2));
+        res.send(response.data);
+      })
+      .catch((error) => console.log(error));
+
+    //const userNFTs = response.data;
+    //res.send(userNFTs);
+  } catch (e) {
+    res.send(e);
+  }
+});
+
+app.get("/tokenBalancesAlchemy", async (req, res) => {
   try {
     const { address, chain } = req.query;
+    // Replace with your Alchemy api key:
+    const config = {
+      apiKey: apiKey,
+      network: Network.ETH_MAINNET, // Replace with your network.
+    };
+    const configMatic = {
+      apiKey: apiKeyMatic,
+      network: Network.MATIC_MAINNET, // Replace with your network.
+    };
+    let alchemy = new Alchemy(config);
 
-    const response = await Moralis.EvmApi.token.getWalletTokenBalances({
-      address: address,
-      chain: chain,
+    if (chain === "0x1") {
+      alchemy = new Alchemy(config);
+    } else if (chain === "0x89") {
+      alchemy = new Alchemy(configMatic);
+    }
+
+    // The wallet address / token we want to query for:
+    let balances = await alchemy.core.getTokenBalances(address);
+    // Remove tokens with zero balance
+    let nonZeroBalances = balances.tokenBalances.filter((token) => {
+      return token.tokenBalance !== "0";
     });
 
-    let tokens = response.data;
-    let legitTokens = [];
-    for (let i = 0; i < tokens.length; i++) {
+    // Counter for SNo of final output
+    let i = 1;
+    // Loop through all tokens with non-zero balance
+
+    for (let token of nonZeroBalances) {
       try {
-        const priceResponse = await Moralis.EvmApi.token.getTokenPrice({
-          address: tokens[i].token_address,
-          chain: chain,
-        });
-        if (priceResponse.data.usdPrice > 0.01) {
-          tokens[i].usd = priceResponse.data.usdPrice;
-          legitTokens.push(tokens[i]);
-        } else {
-          console.log("💩 coin");
-        }
-      } catch (e) {
-        console.log(e);
+        // Get balance of token
+        let balance = token.tokenBalance;
+
+        // Get metadata of token
+        const metadata = await alchemy.core.getTokenMetadata(
+          token.contractAddress
+        );
+        //console.log(metadata);
+        // Compute token balance in human-readable format
+        balance = balance / Math.pow(10, metadata.decimals);
+        balance = balance.toFixed(3);
+
+        //nonZeroBalances[i-1].usd = priceResponse.data.usdPrice;
+
+        // Print name, balance, and symbol of token
+        //console.log(`${i++}. ${metadata.name}: ${balance} ${metadata.symbol}`);
+        nonZeroBalances[nonZeroBalances.indexOf(token)].balance = balance;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].name = metadata.name;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].symbol =
+          metadata.symbol;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].decimals =
+          metadata.decimals;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].logo = metadata.logo;
+      } catch (error) {
+        //console.log(error);
+        let index = nonZeroBalances.indexOf(token);
+        nonZeroBalances.splice(index, 1);
       }
     }
 
+    //console.log(`Token balances of ${address} \n`, nonZeroBalances);
 
-    res.send(legitTokens);
+    res.send(nonZeroBalances);
   } catch (e) {
     res.send(e);
   }
 });
 
-//GET Users NFT's
-
-app.get("/nftBalance", async (req, res) => {
-  await Moralis.start({ apiKey: MORALIS_API_KEY });
-
+app.get("/tokenBalancesAlchemyWithPrices", async (req, res) => {
   try {
     const { address, chain } = req.query;
+    // Replace with your Alchemy api key:
+    const config = {
+      apiKey: apiKey,
+      network: Network.ETH_MAINNET, // Replace with your network.
+    };
+    const configMatic = {
+      apiKey: apiKeyMatic,
+      network: Network.MATIC_MAINNET, // Replace with your network.
+    };
+    let alchemy = new Alchemy(config);
+    let chainName = "ethereum";
 
-    const response = await Moralis.EvmApi.nft.getWalletNFTs({
-      address: address,
-      chain: chain,
-    });
-
-    const userNFTs = response.data;
-
-    res.send(userNFTs);
-  } catch (e) {
-    res.send(e);
-  }
-});
-
-//GET USERS TOKEN TRANSFERS
-
-app.get("/tokenTransfers", async (req, res) => {
-  await Moralis.start({ apiKey: MORALIS_API_KEY });
-
-  try {
-    const { address, chain } = req.query;
-
-    const response = await Moralis.EvmApi.token.getWalletTokenTransfers({
-      address: address,
-      chain: chain,
-    });
-    
-    const userTrans = response.data.result;
-
-    let userTransDetails = [];
-    
-    for (let i = 0; i < userTrans.length; i++) {
-      
-      try {
-        const metaResponse = await Moralis.EvmApi.token.getTokenMetadata({
-          addresses: [userTrans[i].address],
-          chain: chain,
-        });
-        if (metaResponse.data) {
-          userTrans[i].decimals = metaResponse.data[0].decimals;
-          userTrans[i].symbol = metaResponse.data[0].symbol;
-          userTransDetails.push(userTrans[i]);
-        } else {
-          console.log("no details for coin");
-        }
-      } catch (e) {
-        console.log(e);
-      }
-
+    if (chain === "0x1") {
+      alchemy = new Alchemy(config);
+      chainName = "ethereum";
+    } else if (chain === "0x89") {
+      alchemy = new Alchemy(configMatic);
+      chainName = "polygon-pos";
     }
 
+    // The wallet address / token we want to query for:
+    let balances = await alchemy.core.getTokenBalances(address);
+    // Remove tokens with zero balance
+    let nonZeroBalances = balances.tokenBalances.filter((token) => {
+      return token.tokenBalance !== "0";
+    });
 
+    for (let token of nonZeroBalances) {
+      try {
+        // Get balance of token
+        let balance = token.tokenBalance;
 
-    res.send(userTransDetails);
+        // Get metadata of token
+        const metadata = await alchemy.core.getTokenMetadata(
+          token.contractAddress
+        );
+        //console.log(metadata);
+        // Compute token balance in human-readable format
+        balance = balance / Math.pow(10, metadata.decimals);
+        balance = balance.toFixed(3);
+
+        //nonZeroBalances[i-1].usd = priceResponse.data.usdPrice;
+
+        // Print name, balance, and symbol of token
+        //console.log(`${i++}. ${metadata.name}: ${balance} ${metadata.symbol}`);
+        nonZeroBalances[nonZeroBalances.indexOf(token)].balance = balance;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].name = metadata.name;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].symbol =
+          metadata.symbol;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].decimals =
+          metadata.decimals;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].logo = metadata.logo;
+      } catch (error) {
+        //console.log(error);
+        let index = nonZeroBalances.indexOf(token);
+        nonZeroBalances.splice(index, 1);
+      }
+    }
+
+    for (let token of nonZeroBalances) {
+      try {
+        //console.log(chainName);
+        const response = await axios.get(
+          `https://api.coingecko.com/api/v3/simple/token_price/${chainName.toString()}?contract_addresses=${
+            token.contractAddress
+          }&vs_currencies=usd`
+        );
+        //console.log(response);
+        nonZeroBalances[nonZeroBalances.indexOf(token)].usd =
+          response.data[token.contractAddress].usd;
+        nonZeroBalances[nonZeroBalances.indexOf(token)].balanceInUSD =
+          response.data[token.contractAddress].usd *
+          nonZeroBalances[nonZeroBalances.indexOf(token)].balance;
+      } catch (error) {
+        //console.log(error);
+        let index = nonZeroBalances.indexOf(token);
+        nonZeroBalances.splice(index, 1);
+      }
+    }
+
+    res.send(nonZeroBalances);
   } catch (e) {
     res.send(e);
   }
 });
+
